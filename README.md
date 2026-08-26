@@ -19,7 +19,7 @@ money-book-app/
 ## データの保存について
 
 Claudeの中で使うときは `window.storage`、それ以外（GitHub Pagesなど）ではブラウザの
-`localStorage` を自動で使い分けます。データは同じ端末・同じブラウザ内にのみ保存されます。
+`localStorage` を自動で使い分けます。データは同じ端末・同じブラウザ内にのみ保存されます。 
 
 ## 公開方法
 
