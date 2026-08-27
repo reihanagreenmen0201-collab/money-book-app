@@ -87,10 +87,10 @@ const DEFAULT_CATEGORIES = [
 // slugは将来の拡張用に保持のみ（現時点では照合には未使用）
 
 const DEFAULT_PAYMENTS = [
-  { label: "ドコモ", linkedCategory: "ドコモ代" },
-  { label: "バンドルカードにチャージ", linkedCategory: "交通費・バンドル費" },
-  { label: "バンドル支払い", linkedCategory: "交通費・バンドル費" },
-  { label: "d払い残高チャージ", linkedCategory: "交通費・バンドル費" },
+  { label: "ドコモ", linkedCategory: null },
+  { label: "バンドルカードにチャージ", linkedCategory: null },
+  { label: "バンドル支払い", linkedCategory: null },
+  { label: "d払い残高チャージ", linkedCategory: null },
   { label: "Vカード支払い", linkedCategory: null },
   { label: "JCBカード支払い", linkedCategory: null },
   { label: "ガス代", linkedCategory: null },
@@ -699,9 +699,6 @@ function ChecklistTab({ data, update }) {
         <div style={{ textAlign: "right", fontSize: 12.5, color: COLORS.textMute, marginTop: 8 }}>
           合計 ¥{fmt(paidTotal)}
         </div>
-        <p style={{ fontSize: 11, color: COLORS.textMute, marginTop: 8, marginBottom: 0 }}>
-          チェックを入れると、連動先カテゴリの積み立て残高から金額が自動で差し引かれます。チェックを外すと元に戻ります。
-        </p>
       </Section>
 
       <Section
@@ -754,22 +751,35 @@ export default function MoneyBook() {
       const normalizedWallets = normalizeWallets(existing.wallets);
       const salary = existing.salary ?? 0;
       const needsBalanceMigration = existing.categories.some((c) => c.balance === undefined);
-      const categories = needsBalanceMigration
+      let categories = needsBalanceMigration
         ? existing.categories.map((c) => ({ ...c, balance: c.balance ?? 0 }))
         : existing.categories;
-      const needsPaymentMigration = existing.payments.some((p) => p.deducted === undefined || p.linkedCategory === undefined);
-      const payments = needsPaymentMigration
-        ? existing.payments.map((p) => {
-            if (p.deducted !== undefined && p.linkedCategory !== undefined) return p;
-            const def = DEFAULT_PAYMENTS.find((d) => d.label === p.label);
-            return { ...p, linkedCategory: p.linkedCategory ?? def?.linkedCategory ?? null, deducted: p.deducted ?? 0 };
-          })
-        : existing.payments;
+
+      // 支払いとカテゴリの連携を廃止したため、既存の連携は解除し、
+      // すでに差し引かれていた分はカテゴリの積み立て残高に戻す
+      const needsUnlink = existing.payments.some((p) => p.linkedCategory);
+      let payments = existing.payments;
+      if (needsUnlink) {
+        payments = payments.map((p) => {
+          if (p.linkedCategory && p.deducted) {
+            categories = categories.map((c) =>
+              c.name === p.linkedCategory ? { ...c, balance: Number(c.balance || 0) + p.deducted } : c
+            );
+          }
+          return { ...p, linkedCategory: null, deducted: 0 };
+        });
+      }
+      const needsPaymentFieldMigration = payments.some((p) => p.deducted === undefined || p.linkedCategory === undefined);
+      if (needsPaymentFieldMigration) {
+        payments = payments.map((p) => ({ ...p, linkedCategory: p.linkedCategory ?? null, deducted: p.deducted ?? 0 }));
+      }
+
       if (
         JSON.stringify(normalizedWallets) !== JSON.stringify(existing.wallets) ||
         existing.salary === undefined ||
         needsBalanceMigration ||
-        needsPaymentMigration
+        needsUnlink ||
+        needsPaymentFieldMigration
       ) {
         existing = { ...existing, wallets: normalizedWallets, salary, categories, payments };
         await saveMonth(k, existing);
@@ -873,11 +883,12 @@ export default function MoneyBook() {
       className="mb-root"
       style={{
         background: COLORS.bg,
-        minHeight: 560,
+        height: "100dvh",
         borderRadius: 24,
         display: "flex",
         flexDirection: "column",
         maxWidth: 420,
+        width: "100%",
         margin: "0 auto",
         overflow: "hidden",
         border: `1px solid ${COLORS.line}`,
@@ -897,7 +908,7 @@ export default function MoneyBook() {
       />
 
       {/* header */}
-      <div style={{ padding: "18px 18px 12px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+      <div style={{ flexShrink: 0, padding: "18px 18px 12px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <button onClick={() => setKey((k) => addMonths(k, -1))} style={{ background: "none", border: "none", cursor: "pointer", padding: 6 }} aria-label="前の月">
           <ChevronLeft size={18} color={COLORS.text} />
         </button>
@@ -915,7 +926,7 @@ export default function MoneyBook() {
       </div>
 
       {/* body */}
-      <div className="mb-scroll" style={{ flex: 1, overflowY: "auto", padding: "4px 16px 16px" }}>
+      <div className="mb-scroll" style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "4px 16px 16px", WebkitOverflowScrolling: "touch" }}>
         {loading || !data ? (
           <div style={{ textAlign: "center", color: COLORS.textMute, padding: 40, fontSize: 13 }}>読み込み中…</div>
         ) : tab === "home" ? (
@@ -937,7 +948,7 @@ export default function MoneyBook() {
       </div>
 
       {/* tab bar */}
-      <div style={{ display: "flex", borderTop: `1px solid ${COLORS.line}`, background: COLORS.paper }}>
+      <div style={{ flexShrink: 0, display: "flex", borderTop: `1px solid ${COLORS.line}`, background: COLORS.paper }}>
         {tabs.map((t) => {
           const Icon = t.icon;
           const active = tab === t.id;
