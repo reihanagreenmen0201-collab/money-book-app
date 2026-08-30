@@ -120,6 +120,7 @@ const freshMonth = (carryWallets, prevMonth) => ({
     balance: carryWallets ? carryWallets[w.key] ?? 0 : 0,
   })),
   salary: 0,
+  tempAdvance: 0,
   // 前月のカテゴリ一覧をそのまま引き継ぐことで、名前を変更しても積み立て残高が途切れない
   categories:
     prevMonth && prevMonth.categories && prevMonth.categories.length
@@ -574,15 +575,19 @@ function CategoriesTab({ data, update, fund, carryover }) {
             <NumField value={data.salary || 0} onChange={(v) => update((d) => ({ ...d, salary: v }))} />
           </div>
         </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 10 }}>
+          <span style={{ flex: 1, fontSize: 12.5, color: COLORS.textMute }}>一時立て替え</span>
+          <div style={{ width: 140 }}>
+            <NumField value={data.tempAdvance || 0} onChange={(v) => update((d) => ({ ...d, tempAdvance: v }))} />
+          </div>
+        </div>
         <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, color: COLORS.textMute, marginBottom: 10 }}>
           <span>前月からの繰り越し（自動計算）</span>
           <span className="mb-num">¥{fmt(carryover || 0)}</span>
         </div>
-        <div style={{ borderTop: `1px dashed ${COLORS.line}`, paddingTop: 10 }}>
-          <div style={{ fontSize: 11.5, color: COLORS.textMute, marginBottom: 2 }}>原資（給料＋前月繰り越し）</div>
-          <div className="mb-num" style={{ fontSize: 26, fontWeight: 700, color: COLORS.text }}>
-            ¥{fmt(fund)}
-          </div>
+        <div style={{ borderTop: `1px dashed ${COLORS.line}`, paddingTop: 10, display: "flex", justifyContent: "space-between", fontSize: 12.5, color: COLORS.textMute }}>
+          <span>原資（給料＋一時立て替え＋前月繰り越し）</span>
+          <span className="mb-num">¥{fmt(fund)}</span>
         </div>
         <div style={{ marginTop: 10, fontSize: 12.5, color: remain < 0 ? COLORS.danger : COLORS.textMute, display: "flex", alignItems: "center", gap: 4 }}>
           {remain < 0 && <AlertCircle size={13} />}
@@ -750,6 +755,7 @@ export default function MoneyBook() {
     } else {
       const normalizedWallets = normalizeWallets(existing.wallets);
       const salary = existing.salary ?? 0;
+      const tempAdvance = existing.tempAdvance ?? 0;
       const needsBalanceMigration = existing.categories.some((c) => c.balance === undefined);
       let categories = needsBalanceMigration
         ? existing.categories.map((c) => ({ ...c, balance: c.balance ?? 0 }))
@@ -777,11 +783,12 @@ export default function MoneyBook() {
       if (
         JSON.stringify(normalizedWallets) !== JSON.stringify(existing.wallets) ||
         existing.salary === undefined ||
+        existing.tempAdvance === undefined ||
         needsBalanceMigration ||
         needsUnlink ||
         needsPaymentFieldMigration
       ) {
-        existing = { ...existing, wallets: normalizedWallets, salary, categories, payments };
+        existing = { ...existing, wallets: normalizedWallets, salary, tempAdvance, categories, payments };
         await saveMonth(k, existing);
       }
     }
@@ -876,7 +883,7 @@ export default function MoneyBook() {
   ];
 
   const totalAssets = data ? data.wallets.reduce((s, w) => s + Number(w.balance || 0), 0) : 0;
-  const fund = data ? Number(data.salary || 0) + Number(carryover || 0) : 0;
+  const fund = data ? Number(data.salary || 0) + Number(data.tempAdvance || 0) + Number(carryover || 0) : 0;
 
   return (
     <div
