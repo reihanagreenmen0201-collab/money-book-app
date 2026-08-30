@@ -144,10 +144,10 @@ const freshMonth = (carryWallets, prevMonth) => ({
         })),
   monthEnd: DEFAULT_MONTH_END.map((label) => ({ id: nid(), label, done: false })),
   day25: DEFAULT_DAY25.map((label) => ({ id: nid(), label, done: false })),
-  debt: { balance: prevMonth && prevMonth.debt ? Number(prevMonth.debt.balance || 0) : 0 },
-  debtItems:
-    prevMonth && prevMonth.debtItems && prevMonth.debtItems.length
-      ? prevMonth.debtItems.map((p) => ({ ...p, id: nid(), amount: 0, done: false, deducted: 0 }))
+  // 借入先ごとの残高。カテゴリの積み立てと同じ考え方で、前月のリストをそのまま引き継ぐ
+  debts:
+    prevMonth && prevMonth.debts && prevMonth.debts.length
+      ? prevMonth.debts.map((d) => ({ ...d, id: nid() }))
       : [],
   memo: "",
 });
@@ -254,28 +254,6 @@ function removePaymentWithReconcile(data, paymentId) {
     );
   }
   return { ...data, payments: data.payments.filter((p) => p.id !== paymentId), categories };
-}
-
-// 返済チェックリストの項目を更新し、借入残高から差分だけ増減させる
-function reconcileDebtItem(data, itemId, patch) {
-  const debtItems = data.debtItems.map((it) => (it.id === itemId ? { ...it, ...patch } : it));
-  const item = debtItems.find((it) => it.id === itemId);
-  const desired = item.done ? Number(item.amount || 0) : 0;
-  const prevDeducted = item.deducted || 0;
-  const delta = desired - prevDeducted;
-  const debt = { ...data.debt, balance: Number(data.debt?.balance || 0) - delta };
-  const newDebtItems = debtItems.map((it) => (it.id === itemId ? { ...it, deducted: desired } : it));
-  return { ...data, debtItems: newDebtItems, debt };
-}
-
-// 返済項目を削除する際、すでに差し引き済みの分を借入残高へ戻す
-function removeDebtItemWithReconcile(data, itemId) {
-  const item = data.debtItems.find((it) => it.id === itemId);
-  let debt = data.debt;
-  if (item && item.deducted) {
-    debt = { ...debt, balance: Number(debt?.balance || 0) + item.deducted };
-  }
-  return { ...data, debtItems: data.debtItems.filter((it) => it.id !== itemId), debt };
 }
 
 /* ---------- small UI atoms ---------- */
@@ -763,70 +741,67 @@ function ChecklistTab({ data, update }) {
 }
 
 function DebtTab({ data, update }) {
-  const debtBalance = Number(data.debt?.balance || 0);
-  const isNegative = debtBalance < 0;
+  const total = data.debts.reduce((s, d) => s + Number(d.balance || 0), 0);
 
-  const patchItem = (id, patch) => update((d) => reconcileDebtItem(d, id, patch));
-  const addItem = () =>
-    update((d) => ({
-      ...d,
-      debtItems: [...d.debtItems, { id: nid(), label: "新しい項目", amount: 0, done: false, deducted: 0 }],
-    }));
-  const deleteItem = (id) => {
-    const item = data.debtItems.find((it) => it.id === id);
+  const setDebt = (id, patch) =>
+    update((d) => ({ ...d, debts: d.debts.map((x) => (x.id === id ? { ...x, ...patch } : x)) }));
+  const addDebt = () =>
+    update((d) => ({ ...d, debts: [...d.debts, { id: nid(), name: "新しい借入先", balance: 0 }] }));
+  const deleteDebt = (id) => {
+    const item = data.debts.find((x) => x.id === id);
     if (!item) return;
-    if (!window.confirm(`「${item.label}」を削除しますか？`)) return;
-    update((d) => removeDebtItemWithReconcile(d, id));
+    const balanceNote = item.balance ? `（残高 ¥${fmt(item.balance)} も一緒に消えます）` : "";
+    if (!window.confirm(`「${item.name}」を削除しますか？${balanceNote}`)) return;
+    update((d) => ({ ...d, debts: d.debts.filter((x) => x.id !== id) }));
   };
 
   return (
     <>
-      <Section title="借入残高">
-        <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-          {isNegative && <AlertCircle size={13} color={COLORS.danger} />}
-          <div style={{ flex: 1 }}>
-            <NumField
-              value={debtBalance}
-              onChange={(v) => update((d) => ({ ...d, debt: { ...d.debt, balance: v } }))}
-            />
-          </div>
+      <Section title="合計借入残高">
+        <div className="mb-num" style={{ fontSize: 26, fontWeight: 700, color: total < 0 ? COLORS.danger : COLORS.text }}>
+          ¥{fmt(total)}
         </div>
-        <p style={{ fontSize: 11.5, color: COLORS.textMute, marginTop: 8, marginBottom: 0 }}>
-          月が変わっても引き継がれます。「振り分け」タブで一時立て替えを入力したら、ここに反映しておきましょう。
+        <p style={{ fontSize: 11.5, color: COLORS.textMute, marginTop: 6, marginBottom: 0 }}>
+          借りた先ごとに、下で個別に管理できます。返済したら金額を減らしてください。
         </p>
       </Section>
 
       <Section
-        title="返済チェックリスト"
+        title="借入先ごとの残高"
         right={
-          <button onClick={addItem} style={{ background: "none", border: "none", cursor: "pointer", color: COLORS.clay }}>
+          <button onClick={addDebt} style={{ background: "none", border: "none", cursor: "pointer", color: COLORS.clay }}>
             <Plus size={16} />
           </button>
         }
       >
-        {data.debtItems.length === 0 && (
+        {data.debts.length === 0 && (
           <p style={{ fontSize: 12.5, color: COLORS.textMute, margin: "4px 0 8px" }}>
-            ＋ボタンから返済する相手や項目を追加できます。
+            ＋ボタンから、借りた相手や場所を追加できます（例：母、Aさん、カード会社 など）。
           </p>
         )}
-        {data.debtItems.map((it) => (
-          <CheckRow
-            key={it.id}
-            label={it.label}
-            subtitle="→ 借入残高から差し引き"
-            done={it.done}
-            onToggle={() => patchItem(it.id, { done: !it.done })}
-            onDelete={() => deleteItem(it.id)}
-            right={
-              <div style={{ width: 100 }}>
-                <NumField value={it.amount} onChange={(v) => patchItem(it.id, { amount: v })} prefix="" />
+        {data.debts.map((x) => {
+          const isNegative = Number(x.balance || 0) < 0;
+          return (
+            <div key={x.id} style={{ padding: "10px 0", borderBottom: `1px dashed ${COLORS.line}` }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                <input
+                  value={x.name}
+                  onChange={(e) => setDebt(x.id, { name: e.target.value })}
+                  style={{ flex: 1, border: "none", background: "transparent", fontSize: 14, color: COLORS.text, outline: "none" }}
+                />
+                <button onClick={() => deleteDebt(x.id)} style={{ background: "none", border: "none", cursor: "pointer", padding: 2 }}>
+                  <Trash2 size={13} color={COLORS.textMute} />
+                </button>
               </div>
-            }
-          />
-        ))}
-        <p style={{ fontSize: 11, color: COLORS.textMute, marginTop: 8, marginBottom: 0 }}>
-          チェックを入れると、借入残高から金額が自動で差し引かれます。チェックを外すと元に戻ります。
-        </p>
+              <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                {isNegative && <AlertCircle size={12} color={COLORS.danger} />}
+                <div style={{ flex: 1 }}>
+                  <NumField value={x.balance} onChange={(v) => setDebt(x.id, { balance: v })} />
+                </div>
+              </div>
+            </div>
+          );
+        })}
       </Section>
     </>
   );
@@ -853,9 +828,13 @@ export default function MoneyBook() {
       const normalizedWallets = normalizeWallets(existing.wallets);
       const salary = existing.salary ?? 0;
       const tempAdvance = existing.tempAdvance ?? 0;
-      const needsDebtMigration = existing.debt === undefined || existing.debtItems === undefined;
-      const debt = existing.debt ?? { balance: 0 };
-      const debtItems = existing.debtItems ?? [];
+      const needsDebtMigration = existing.debts === undefined;
+      let debts = existing.debts;
+      if (needsDebtMigration) {
+        // 旧「借入残高1つ＋返済チェックリスト」形式から、借入先ごとのリスト形式へ移行する
+        const oldBalance = Number(existing.debt?.balance || 0);
+        debts = oldBalance !== 0 ? [{ id: nid(), name: "返済", balance: oldBalance }] : [];
+      }
       const needsBalanceMigration = existing.categories.some((c) => c.balance === undefined);
       let categories = needsBalanceMigration
         ? existing.categories.map((c) => ({ ...c, balance: c.balance ?? 0 }))
@@ -889,7 +868,7 @@ export default function MoneyBook() {
         needsPaymentFieldMigration ||
         needsDebtMigration
       ) {
-        existing = { ...existing, wallets: normalizedWallets, salary, tempAdvance, categories, payments, debt, debtItems };
+        existing = { ...existing, wallets: normalizedWallets, salary, tempAdvance, categories, payments, debts };
         await saveMonth(k, existing);
       }
     }
