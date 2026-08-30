@@ -2,12 +2,13 @@ html, body {
   margin: 0;
   padding: 0;
   background: #F3EEE2;
+  height: 100%;
+  overflow: hidden;
 }
 #root {
-  min-height: 100vh;
+  height: 100dvh;
   display: flex;
-  align-items: flex-start;
+  align-items: stretch;
   justify-content: center;
-  padding: 16px 0;
   box-sizing: border-box;
 }
